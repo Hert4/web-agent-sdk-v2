@@ -1,0 +1,113 @@
+{
+  "name": "web-agent-sdk",
+  "version": "2.0.0",
+  "description": "Production-grade AI agent SDK for web automation with hierarchical multi-agent architecture",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./browser": {
+      "import": "./dist/browser.mjs",
+      "require": "./dist/browser.js",
+      "types": "./dist/browser.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts src/browser.ts --format cjs,esm --dts --clean",
+    "build:watch": "tsup src/index.ts src/browser.ts --format cjs,esm --dts --watch",
+    "dev": "tsx watch src/dev.ts",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "test:e2e": "playwright test",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "prepare": "husky install",
+    "benchmark": "tsx benchmarks/run.ts",
+    "docs": "typedoc --out docs/api src/index.ts"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "web-automation",
+    "browser-automation",
+    "llm",
+    "gpt-4",
+    "claude",
+    "playwright",
+    "puppeteer",
+    "dom-analysis",
+    "web-scraping"
+  ],
+  "author": "Hert4",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Hert4/web-agent-sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/Hert4/web-agent-sdk/issues"
+  },
+  "homepage": "https://github.com/Hert4/web-agent-sdk#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "eventemitter3": "^5.0.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@playwright/test": "^1.40.0",
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "eslint": "^8.54.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-import": "^2.29.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.1.0",
+    "openai": "^4.20.0",
+    "playwright": "^1.40.0",
+    "prettier": "^3.1.0",
+    "tsup": "^8.0.1",
+    "tsx": "^4.6.0",
+    "typedoc": "^0.25.4",
+    "typescript": "^5.3.2",
+    "vitest": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": ">=0.20.0",
+    "openai": ">=4.0.0",
+    "playwright": ">=1.40.0"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    },
+    "playwright": {
+      "optional": true
+    }
+  },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ]
+  }
+}
