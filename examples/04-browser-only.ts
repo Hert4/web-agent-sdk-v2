@@ -24,7 +24,9 @@
 </html>
 */
 
-import { WebAgent, DOMDistillationMode } from 'web-agent-sdk/browser';
+// When built: import from 'web-agent-sdk/browser'
+// For development (without dist/): import from source
+import { WebAgent, DOMDistillationMode } from '../src/browser';
 
 // Initialize agent when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {

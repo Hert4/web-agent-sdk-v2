@@ -31,6 +31,9 @@ export class ActionExecutor {
   private browser: BrowserAdapter;
   private distiller: DOMDistiller;
   private config: Required<ActionExecutorConfig>;
+  // In Node+Playwright we can't pass real DOM Elements around.
+  // This map lets us resolve distiller indices to selectors.
+  private indexToSelector: Map<number, string> = new Map();
   
   constructor(
     browser: BrowserAdapter,
@@ -44,6 +47,14 @@ export class ActionExecutor {
       typeDelay: config.typeDelay ?? 50,
       scrollAmount: config.scrollAmount ?? 300,
     };
+  }
+
+  /**
+   * Provide a mapping from element index -> selector.
+   * Used by PlaywrightAdapter to execute actions.
+   */
+  setIndexToSelectorMap(map: Map<number, string>): void {
+    this.indexToSelector = map;
   }
   
   /**
@@ -239,11 +250,15 @@ export class ActionExecutor {
    * Get element by index from distiller
    */
   private getElement(index: number): Element {
+    // Browser mode: we have real Elements.
     const element = this.distiller.getElement(index);
-    if (!element) {
-      throw new Error(`Element not found at index ${index}`);
-    }
-    return element;
+    if (element) return element;
+
+    // Node mode: fall back to selector string (casted through Element to satisfy types).
+    const selector = this.indexToSelector.get(index);
+    if (selector) return selector as unknown as Element;
+
+    throw new Error(`Element not found at index ${index}`);
   }
   
   /**
@@ -301,6 +316,13 @@ export class ActionExecutor {
     }
     
     return { code, message, recoverable, ...(suggestion ? { suggestion } : {}) };
+  }
+  
+  /**
+   * Capture screenshot and return base64 string
+   */
+  async captureScreenshot(fullPage = false): Promise<string> {
+    return this.browser.screenshot({ fullPage });
   }
   
   /**

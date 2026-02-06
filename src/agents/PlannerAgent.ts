@@ -10,6 +10,20 @@ import type {
 } from '../types';
 import type { LLMProvider } from '../infrastructure/LLMProvider';
 
+/**
+ * Extract JSON from an LLM response that may wrap it in markdown code fences.
+ */
+function extractJSON(text: string): string {
+  const trimmed = text.trim();
+  // Strip ```json ... ``` or ``` ... ``` fences
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
+  if (fenceMatch) return fenceMatch[1]!.trim();
+  // Try to find a JSON object/array within the text
+  const jsonMatch = trimmed.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+  if (jsonMatch) return jsonMatch[1]!;
+  return trimmed;
+}
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -44,23 +58,67 @@ export interface RecoveryPlan {
 // PROMPTS
 // ============================================================================
 
-const PLANNER_SYSTEM_PROMPT = `You are a task planning agent for web automation. Break down user tasks into atomic subtasks.
+const PLANNER_SYSTEM_PROMPT = `You are a task planning agent for web automation. Break down user tasks into COMPLETE, DETAILED atomic subtasks.
+
+## CRITICAL: Never Skip Steps!
+Each subtask must be a single, atomic action. NEVER combine multiple actions.
+
+### Common Workflow Patterns (MUST FOLLOW):
+
+**Search Flow:**
+1. Find and click search field
+2. Type search query
+3. Press Enter OR click search button (REQUIRED!)
+4. Wait for results
+5. Click on correct result
+
+**Messaging/Chat Flow:**
+1. Search/find the recipient
+2. Click to open conversation with recipient
+3. Verify correct conversation is open
+4. Type message in input field
+5. Click send button
+
+**Login Flow:**
+1. Enter username/email
+2. Enter password
+3. Click login button
+4. Verify login success
+
+**Form Fill Flow:**
+1. For each field: locate → clear if needed → type value
+2. Select dropdowns
+3. Check/uncheck checkboxes
+4. Click submit
 
 ## SubTask Format:
-- id: Unique identifier (string)
-- description: Human-readable description
-- action: One of [search, click, type, select, scroll, wait, navigate, verify, extract]
-- target: Element to interact with
-- value: Value to input (optional)
-- verification: How to verify success
-- estimatedSteps: Expected browser actions (1-5)
+{
+  "id": "1",
+  "description": "Clear description of SINGLE action",
+  "action": "search|click|type|select|scroll|wait|navigate|verify|press",
+  "target": "Specific element to interact with (e.g., 'search input field', 'send button')",
+  "value": "Value to input or select (optional)",
+  "verification": "How to verify this subtask succeeded",
+  "estimatedSteps": 1-3,
+  "dependencies": ["list of subtask IDs that must complete first"],
+  "priority": "high|medium|low"
+}
 
 ## Output Format (JSON only):
 {
   "subtasks": [
-    { "id": "1", "description": "...", "action": "...", "target": "...", "verification": "...", "estimatedSteps": 1 }
+    { "id": "1", "description": "...", "action": "type", "target": "search field", "value": "search query", "verification": "Search field shows the query", "estimatedSteps": 1, "priority": "high" },
+    { "id": "2", "description": "Press Enter to execute search", "action": "press", "target": "keyboard", "value": "Enter", "verification": "Search results appear", "estimatedSteps": 1, "dependencies": ["1"], "priority": "high" }
   ]
-}`;
+}
+
+## Rules:
+1. ALWAYS include search execution step (press Enter or click search button) after typing in search
+2. ALWAYS verify you're in correct context before acting (e.g., correct conversation before messaging)
+3. Break down into smallest atomic actions - 1 action per subtask
+4. Use dependencies to enforce order
+5. First subtask should have priority: "high"
+6. Subtasks that verify context should have priority: "high"`;
 
 // ============================================================================
 // PLANNER AGENT
@@ -90,12 +148,14 @@ export class PlannerAgent {
       },
     ];
 
-    const response = await this.llm.complete({ messages, responseFormat: 'json' });
+    // Some OpenAI-compatible gateways may reject `response_format`.
+    // We rely on the prompt instruction "Return JSON only" instead.
+    const response = await this.llm.complete({ messages });
     this.totalTokens += response.usage.totalTokens;
 
     let subtasks: SubTask[];
     try {
-      const parsed = JSON.parse(response.content);
+      const parsed = JSON.parse(extractJSON(response.content));
       subtasks = this.validateSubtasks(parsed.subtasks || parsed);
     } catch {
       subtasks = [];
@@ -133,12 +193,12 @@ export class PlannerAgent {
       },
     ];
 
-    const response = await this.llm.complete({ messages, responseFormat: 'json' });
+    const response = await this.llm.complete({ messages });
     this.totalTokens += response.usage.totalTokens;
 
     const fallback: VerificationResult = { completed: result.success, confidence: 0.5, reason: 'Parse failed' };
     try {
-      const parsed = JSON.parse(response.content);
+      const parsed = JSON.parse(extractJSON(response.content));
       return {
         completed: typeof parsed.completed === 'boolean' ? parsed.completed : fallback.completed,
         confidence: typeof parsed.confidence === 'number' ? parsed.confidence : fallback.confidence,
@@ -164,12 +224,12 @@ export class PlannerAgent {
       },
     ];
 
-    const response = await this.llm.complete({ messages, responseFormat: 'json' });
+    const response = await this.llm.complete({ messages });
     this.totalTokens += response.usage.totalTokens;
 
     const fallback: RecoveryPlan = { recoverable: false, strategy: 'abort', reason: 'Parse failed' };
     try {
-      const parsed = JSON.parse(response.content);
+      const parsed = JSON.parse(extractJSON(response.content));
       const strategy = validStrategies.includes(parsed.strategy) ? parsed.strategy : 'abort';
       return {
         recoverable: typeof parsed.recoverable === 'boolean' ? parsed.recoverable : strategy !== 'abort',

@@ -488,9 +488,28 @@ export interface LLMConfig {
   readonly timeout?: number;
 }
 
+/**
+ * Content part for multimodal messages
+ */
+export interface TextContentPart {
+  readonly type: 'text';
+  readonly text: string;
+}
+
+export interface ImageContentPart {
+  readonly type: 'image_url';
+  readonly image_url: {
+    readonly url: string; // base64 data URL or http URL
+    readonly detail?: 'low' | 'high' | 'auto';
+  };
+}
+
+export type ContentPart = TextContentPart | ImageContentPart;
+
 export interface LLMMessage {
   readonly role: 'system' | 'user' | 'assistant' | 'tool';
-  readonly content: string;
+  /** Content can be string or array of content parts (for multimodal) */
+  readonly content: string | readonly ContentPart[];
   readonly name?: string;
   readonly tool_call_id?: string;
 }

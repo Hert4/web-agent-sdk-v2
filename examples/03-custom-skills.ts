@@ -1,18 +1,22 @@
 /**
  * Example 3: Custom Skills and Error Recovery
- * 
+ *
  * This example demonstrates how to add custom skills
  * and handle errors gracefully.
  */
 
-import { WebAgent, SkillRegistry } from 'web-agent-sdk';
+import { WebAgent } from '../src';
+
+// Load .env
+try { const { readFileSync } = await import('node:fs'); const { resolve } = await import('node:path'); readFileSync(resolve(process.cwd(), '.env'), 'utf-8').split('\n').forEach((l: string) => { const t = l.trim(); if (!t || t.startsWith('#')) return; const eq = t.indexOf('='); if (eq === -1) return; const k = t.slice(0, eq).trim(); let v = t.slice(eq + 1).trim(); if ((v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) v = v.slice(1, -1); if (!process.env[k]) process.env[k] = v; }); } catch {}
 
 async function main() {
   const agent = new WebAgent({
     llm: {
       provider: 'openai',
-      model: 'gpt-4-turbo',
-      apiKey: process.env.OPENAI_API_KEY!,
+      model: process.env.WEB_AGENT_OPENAI_MODEL || 'gpt-4-turbo',
+      apiKey: process.env.WEB_AGENT_OPENAI_API_KEY || '',
+      baseUrl: process.env.WEB_AGENT_OPENAI_BASE_URL,
     },
     retry: {
       maxRetries: 5,

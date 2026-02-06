@@ -306,7 +306,9 @@ export class DOMBrowserAdapter extends BrowserAdapter {
 // ============================================================================
 
 export class PlaywrightAdapter extends BrowserAdapter {
-  private page: PlaywrightPage;
+  // Exposed for Node-mode distiller (duck-typed in WebAgent.setBrowserAdapter)
+  public page: PlaywrightPage;
+  private cachedTitle = '';
 
   constructor(page: PlaywrightPage) {
     super();
@@ -398,18 +400,22 @@ export class PlaywrightAdapter extends BrowserAdapter {
 
   async navigate(url: string): Promise<void> {
     await this.page.goto(url);
+    this.cachedTitle = await this.page.title();
   }
 
   async goBack(): Promise<void> {
     await this.page.goBack();
+    this.cachedTitle = await this.page.title();
   }
 
   async goForward(): Promise<void> {
     await this.page.goForward();
+    this.cachedTitle = await this.page.title();
   }
 
   async refresh(): Promise<void> {
     await this.page.reload();
+    this.cachedTitle = await this.page.title();
   }
 
   async screenshot(options?: ScreenshotOptions): Promise<string> {
@@ -425,8 +431,13 @@ export class PlaywrightAdapter extends BrowserAdapter {
   }
 
   getTitle(): string {
-    // This is sync in Playwright, but we'll handle async usage
-    return ''; // Would need await this.page.title()
+    return this.cachedTitle;
+  }
+
+  /** Refresh the cached title from the page (call after navigations). */
+  async refreshTitle(): Promise<string> {
+    this.cachedTitle = await this.page.title();
+    return this.cachedTitle;
   }
 }
 
@@ -439,7 +450,9 @@ interface PlaywrightPage {
   dblclick(selector: string): Promise<void>;
   type(selector: string, text: string, options?: unknown): Promise<void>;
   fill(selector: string, value: string): Promise<void>;
-  selectOption(selector: string, value: string | string[]): Promise<void>;
+  // Playwright's Page.selectOption returns the selected values (string[])
+  // https://playwright.dev/docs/api/class-page#page-select-option
+  selectOption(selector: string, value: string | string[]): Promise<string[]>;
   check(selector: string): Promise<void>;
   uncheck(selector: string): Promise<void>;
   hover(selector: string): Promise<void>;
@@ -448,11 +461,12 @@ interface PlaywrightPage {
   locator(selector: string): { scrollIntoViewIfNeeded(): Promise<void> };
   keyboard: { press(key: string): Promise<void> };
   waitForTimeout(timeout: number): Promise<void>;
-  waitForSelector(selector: string, options?: unknown): Promise<void>;
-  goto(url: string): Promise<void>;
-  goBack(): Promise<void>;
-  goForward(): Promise<void>;
-  reload(): Promise<void>;
+  // Playwright returns an ElementHandle (or null) here; we don't use the return value.
+  waitForSelector(selector: string, options?: unknown): Promise<unknown>;
+  goto(url: string): Promise<unknown>;
+  goBack(): Promise<unknown>;
+  goForward(): Promise<unknown>;
+  reload(): Promise<unknown>;
   screenshot(options?: unknown): Promise<Buffer>;
   url(): string;
   title(): Promise<string>;

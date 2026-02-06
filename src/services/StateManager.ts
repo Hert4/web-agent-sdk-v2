@@ -37,8 +37,10 @@ export class StateManager {
 
   constructor(options: { maxHistory?: number; doc?: Document; win?: Window } = {}) {
     this.maxHistory = options.maxHistory ?? 50;
-    this.document = options.doc || document;
-    this.window = options.win || window;
+    // Allow Node.js usage (no global document/window) by providing doc/win.
+    // If not provided, fall back to globals when they exist.
+    this.document = options.doc || (globalThis as unknown as { document?: Document }).document!;
+    this.window = options.win || (globalThis as unknown as { window?: Window }).window!;
   }
 
   /**

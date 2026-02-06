@@ -479,7 +479,18 @@ export class DOMDistiller {
   private elementMap: Map<number, Element> = new Map();
   
   constructor(doc?: Document) {
-    this.document = doc || document;
+    // In Node.js there is no global `document`; Playwright/Puppeteer adapters
+    // must provide a Document-like object or the distiller must be used only in
+    // browser builds.
+    if (doc) {
+      this.document = doc;
+    } else if (typeof document !== 'undefined') {
+      this.document = document;
+    } else {
+      throw new Error(
+        'DOMDistiller requires a DOM Document. In Node.js, use a BrowserAdapter that supplies DOM context or run in a browser environment.'
+      );
+    }
   }
   
   /**
