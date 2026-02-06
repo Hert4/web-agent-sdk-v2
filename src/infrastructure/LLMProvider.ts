@@ -6,8 +6,6 @@ import type {
   LLMConfig,
   LLMRequest,
   LLMResponse,
-  LLMMessage,
-  TokenUsage,
   OpenAIFunction,
   AnthropicTool,
   ToolCall,
@@ -40,7 +38,7 @@ export abstract class LLMProvider {
 export class OpenAIProvider extends LLMProvider {
   private client: OpenAIClient | null = null;
   
-  constructor(config: Omit<LLMConfig, 'provider'> & { provider?: 'openai' }) {
+  constructor(config: Omit<LLMConfig, 'provider'>) {
     super({ ...config, provider: 'openai' });
   }
   
@@ -110,14 +108,15 @@ export class OpenAIProvider extends LLMProvider {
     
     // Dynamic import to avoid bundling if not used
     const { default: OpenAI } = await import('openai');
-    
-    this.client = new OpenAI({
+
+    const client = new OpenAI({
       apiKey: this.config.apiKey,
       baseURL: this.config.baseUrl,
       timeout: this.config.timeout ?? 60000,
-    });
-    
-    return this.client;
+    }) as unknown as OpenAIClient;
+
+    this.client = client;
+    return client;
   }
   
   private mapFinishReason(reason: string | null): LLMResponse['finishReason'] {
@@ -138,7 +137,7 @@ export class OpenAIProvider extends LLMProvider {
 export class AnthropicProvider extends LLMProvider {
   private client: AnthropicClient | null = null;
   
-  constructor(config: Omit<LLMConfig, 'provider'> & { provider?: 'anthropic' }) {
+  constructor(config: Omit<LLMConfig, 'provider'>) {
     super({ ...config, provider: 'anthropic' });
   }
   
@@ -211,14 +210,15 @@ export class AnthropicProvider extends LLMProvider {
     if (this.client) return this.client;
     
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    
-    this.client = new Anthropic({
+
+    const client = new Anthropic({
       apiKey: this.config.apiKey,
       baseURL: this.config.baseUrl,
       timeout: this.config.timeout ?? 60000,
-    });
-    
-    return this.client;
+    }) as unknown as AnthropicClient;
+
+    this.client = client;
+    return client;
   }
   
   private mapStopReason(reason: string | null): LLMResponse['finishReason'] {

@@ -14,7 +14,7 @@ import { BrowserNavigationAgent } from '../agents/BrowserNavigationAgent';
 import { DOMDistiller } from '../services/DOMDistiller';
 import { ActionExecutor } from '../services/ActionExecutor';
 import { ChangeObserver } from '../services/ChangeObserver';
-import { SkillRegistry, createDefaultRegistry } from '../services/SkillRegistry';
+import { SkillRegistry, createDefaultRegistry, type PrimitiveSkillsConfig } from '../services/SkillRegistry';
 import { ErrorHandler, createErrorHandler } from '../services/ErrorHandler';
 import { StateManager, createStateManager } from '../services/StateManager';
 import { TokenTracker, createTokenTracker } from '../services/TokenTracker';
@@ -61,12 +61,15 @@ export class WebAgent extends EventEmitter<WebAgentEvents> {
     this.errorHandler = createErrorHandler({ maxRetries: this.config.retry.maxRetries });
     this.stateManager = createStateManager();
     this.tokenTracker = createTokenTracker();
-    this.skills = createDefaultRegistry({ distiller: this.distiller, executor: this.executor, browser: this.browser });
-    this.planner = new PlannerAgent(this.llm, { maxSubtasks: this.config.maxSubtasksPerTask, customSystemPrompt: config.prompts?.planner });
+    this.skills = createDefaultRegistry({ distiller: this.distiller, executor: this.executor, browser: this.browser } as PrimitiveSkillsConfig);
+    this.planner = new PlannerAgent(this.llm, {
+      maxSubtasks: this.config.maxSubtasksPerTask,
+      ...(config.prompts?.planner ? { customSystemPrompt: config.prompts.planner } : {}),
+    });
     this.browserNav = new BrowserNavigationAgent(this.llm, this.distiller, this.executor, this.observer, {
       maxStepsPerSubtask: this.config.maxStepsPerSubtask,
-      customSystemPrompt: config.prompts?.browserNav,
       screenshotOnAction: this.config.screenshots,
+      ...(config.prompts?.browserNav ? { customSystemPrompt: config.prompts.browserNav } : {}),
     });
     this.debug('WebAgent initialized');
   }
@@ -91,6 +94,9 @@ export class WebAgent extends EventEmitter<WebAgentEvents> {
       // Planning phase
       this.debug(`[${taskId}] Planning...`);
       plan = await this.planner.planTask(task, pageState);
+      const plannerTokens = this.planner.getTokensUsed();
+      this.tokenTracker.track('planner', this.config.llm.model, plannerTokens, 0);
+      totalTokens += plannerTokens;
       this.emit('task:plan', { taskId, plan });
       this.debug(`[${taskId}] Created ${plan.subtasks.length} subtasks`);
 
@@ -107,12 +113,15 @@ export class WebAgent extends EventEmitter<WebAgentEvents> {
         subtaskResults.push(result);
         totalSteps += result.steps.length;
         totalTokens += result.tokensUsed;
+        this.tokenTracker.track('browserNav', this.config.llm.model, result.tokensUsed, 0);
 
         if (result.success) {
           this.emit('subtask:complete', { taskId, result });
           this.stateManager.saveCheckpoint(`subtask_${i+1}`);
         } else {
-          this.emit('subtask:error', { taskId, subtask, error: result.error! });
+          if (result.error) {
+            this.emit('subtask:error', { taskId, subtask, error: result.error });
+          }
           const shouldContinue = await this.attemptRecovery(subtask, result, pageState);
           if (!shouldContinue) break;
         }
@@ -163,9 +172,10 @@ export class WebAgent extends EventEmitter<WebAgentEvents> {
 
   private async attemptRecovery(subtask: SubTask, result: SubTaskResult, pageState: PageState): Promise<boolean> {
     try {
-      const recovery = await this.planner.handleFailure(subtask, new Error(result.error?.message), pageState);
+      const errorMsg = result.error?.message ?? 'Unknown subtask failure';
+      const recovery = await this.planner.handleFailure(subtask, new Error(errorMsg), pageState);
       this.emit('error:recovery', { taskId: this.currentTaskId!, error: result.error, strategy: recovery.strategy });
-      return recovery.strategy === 'skip';
+      return recovery.strategy !== 'abort';
     } catch { return false; }
   }
 
@@ -173,11 +183,16 @@ export class WebAgent extends EventEmitter<WebAgentEvents> {
     const taskId = this.currentTaskId || 'direct';
     this.emit('action:start', { taskId, action, params });
     this.observer.startObserving();
-    const result = await this.executor.execute(action, params);
-    const changes = this.observer.stopObserving();
-    const enriched = { ...result, mutations: changes.mutations, verbalFeedback: changes.verbalFeedback || result.verbalFeedback };
-    this.emit('action:complete', { taskId, result: enriched });
-    return enriched;
+    try {
+      const result = await this.executor.execute(action, params);
+      const changes = this.observer.stopObserving();
+      const enriched = { ...result, mutations: changes.mutations, verbalFeedback: changes.verbalFeedback || result.verbalFeedback };
+      this.emit('action:complete', { taskId, result: enriched });
+      return enriched;
+    } catch (error) {
+      this.observer.stopObserving();
+      throw error;
+    }
   }
 
   async getContext(mode: DOMDistillationMode = Mode.ALL_FIELDS): Promise<DistilledDOM> {
@@ -187,11 +202,13 @@ export class WebAgent extends EventEmitter<WebAgentEvents> {
   async chat(message: string): Promise<string> {
     const pageState = this.getPageState();
     const ctx = await this.distiller.distill(Mode.TEXT_ONLY);
-    const content = 'content' in ctx ? ctx.content.slice(0, 10).map(c => c.content).join('\n') : '';
+    const pageContent = ctx.mode === Mode.TEXT_ONLY
+      ? ctx.content.slice(0, 10).map(c => c.content).join('\n')
+      : '';
     const resp = await this.llm.complete({
       messages: [
         { role: 'system', content: 'Answer based on the web page context.' },
-        { role: 'user', content: `URL: ${pageState.url}\nTitle: ${pageState.title}\n\n${content}\n\nQuestion: ${message}` },
+        { role: 'user', content: `URL: ${pageState.url}\nTitle: ${pageState.title}\n\n${pageContent}\n\nQuestion: ${message}` },
       ],
     });
     return resp.content;
@@ -207,7 +224,12 @@ export class WebAgent extends EventEmitter<WebAgentEvents> {
   setBrowserAdapter(adapter: BrowserAdapter): void {
     this.browser = adapter;
     this.executor = new ActionExecutor(adapter, this.distiller);
-    this.skills = createDefaultRegistry({ distiller: this.distiller, executor: this.executor, browser: this.browser });
+    this.skills = createDefaultRegistry({ distiller: this.distiller, executor: this.executor, browser: this.browser } as PrimitiveSkillsConfig);
+    this.browserNav = new BrowserNavigationAgent(this.llm, this.distiller, this.executor, this.observer, {
+      maxStepsPerSubtask: this.config.maxStepsPerSubtask,
+      screenshotOnAction: this.config.screenshots,
+      ...(this.config.prompts?.browserNav ? { customSystemPrompt: this.config.prompts.browserNav } : {}),
+    });
   }
 
   private getPageState(): PageState { return { url: this.browser.getUrl(), title: this.browser.getTitle() }; }

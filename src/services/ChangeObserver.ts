@@ -109,9 +109,9 @@ export class ChangeObserver {
       mutations: changes,
       verbalFeedback,
       urlChanged,
-      newUrl: urlChanged ? currentUrl : undefined,
+      ...(urlChanged ? { newUrl: currentUrl } : {}),
       titleChanged,
-      newTitle: titleChanged ? currentTitle : undefined,
+      ...(titleChanged ? { newTitle: currentTitle } : {}),
     };
   }
   
@@ -365,8 +365,8 @@ export class ChangeObserver {
    */
   private isSignificantAttributeChange(
     attr: string,
-    oldValue: string | null,
-    newValue: string | null
+    _oldValue: string | null,
+    _newValue: string | null
   ): boolean {
     // Ignore common non-significant changes
     const ignored = ['style', 'class', 'data-reactid', 'data-reactroot'];

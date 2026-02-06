@@ -79,8 +79,8 @@ export class ActionExecutor {
         action,
         params,
         duration,
-        before,
-        after,
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
         verbalFeedback,
       };
       
@@ -95,7 +95,7 @@ export class ActionExecutor {
         params,
         error: actionError,
         duration,
-        before,
+        ...(before ? { before } : {}),
         verbalFeedback,
       };
     }
@@ -112,7 +112,7 @@ export class ActionExecutor {
       case 'click': {
         const p = params as ActionParams['click'];
         const element = this.getElement(p.index);
-        await this.browser.click(element, { button: p.button });
+        await this.browser.click(element, p.button ? { button: p.button } : {});
         break;
       }
       
@@ -204,7 +204,7 @@ export class ActionExecutor {
         const p = params as ActionParams['waitForElement'];
         await this.browser.waitForSelector(p.selector, {
           timeout: p.timeout ?? this.config.defaultTimeout,
-          state: p.state,
+          ...(p.state ? { state: p.state } : {}),
         });
         break;
       }
@@ -256,20 +256,21 @@ export class ActionExecutor {
       
       const rect = element.getBoundingClientRect();
       
-      return {
+      const snapshot: ElementSnapshot = {
         index,
         selector: element.id ? `#${element.id}` : element.tagName.toLowerCase(),
         exists: true,
         visible: rect.width > 0 && rect.height > 0,
-        value: element instanceof HTMLInputElement ? element.value : undefined,
-        text: element.textContent?.slice(0, 100) || undefined,
-        boundingBox: rect.width > 0 ? {
+        ...(element instanceof HTMLInputElement ? { value: element.value } : {}),
+        ...(element.textContent ? { text: element.textContent.slice(0, 100) } : {}),
+        ...(rect.width > 0 ? { boundingBox: {
           x: rect.x,
           y: rect.y,
           width: rect.width,
           height: rect.height,
-        } : undefined,
+        } } : {}),
       };
+      return snapshot;
     } catch {
       return undefined;
     }
@@ -299,7 +300,7 @@ export class ActionExecutor {
       recoverable = false;
     }
     
-    return { code, message, recoverable, suggestion };
+    return { code, message, recoverable, ...(suggestion ? { suggestion } : {}) };
   }
   
   /**

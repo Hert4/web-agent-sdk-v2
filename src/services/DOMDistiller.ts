@@ -47,23 +47,12 @@ const EXCLUDED_TAGS = new Set([
   'head', 'meta', 'link', 'base', 'title'
 ]);
 
-/** Tags that typically contain navigation/boilerplate */
-const NOISE_TAGS = new Set([
-  'nav', 'footer', 'aside', 'header'
-]);
-
 /** Tags that contain meaningful text content */
 const TEXT_CONTENT_TAGS = new Set([
   'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
   'article', 'section', 'main', 'blockquote',
   'li', 'td', 'th', 'caption', 'figcaption',
   'label', 'legend', 'summary', 'dt', 'dd'
-]);
-
-/** Interactive element tags */
-const INTERACTIVE_TAGS = new Set([
-  'a', 'button', 'input', 'select', 'textarea',
-  'details', 'summary', 'dialog', 'menu', 'menuitem'
 ]);
 
 /** ARIA roles that indicate interactivity */
@@ -180,10 +169,10 @@ function generateSelector(element: Element): string {
     }
     
     // Add nth-child if needed
-    const parent = current.parentElement;
+    const parent: Element | null = current.parentElement;
     if (parent) {
       const siblings = Array.from(parent.children);
-      const sameTagSiblings = siblings.filter(s => s.tagName === current!.tagName);
+      const sameTagSiblings = siblings.filter((s: Element) => s.tagName === current!.tagName);
       
       if (sameTagSiblings.length > 1) {
         const index = sameTagSiblings.indexOf(current) + 1;
@@ -414,11 +403,14 @@ function extractForms(document: Document): FormInfo[] {
       }
     });
     
+    const name = form.getAttribute('name');
+    const action = form.getAttribute('action');
+    const method = form.getAttribute('method');
     forms.push({
       index,
-      name: form.getAttribute('name') || undefined,
-      action: form.getAttribute('action') || undefined,
-      method: form.getAttribute('method') || undefined,
+      ...(name ? { name } : {}),
+      ...(action ? { action } : {}),
+      ...(method ? { method } : {}),
       fieldIndices,
     });
   });
@@ -437,14 +429,15 @@ function extractLandmarks(document: Document): LandmarkInfo[] {
     const elements = document.querySelectorAll(`[role="${role}"]`);
     elements.forEach(element => {
       const idx = parseInt(element.getAttribute('data-agent-index') || '-1', 10);
+      const label = element.getAttribute('aria-label');
       landmarks.push({
         role,
-        label: element.getAttribute('aria-label') || undefined,
+        ...(label ? { label } : {}),
         elementIndex: idx,
       });
     });
   });
-  
+
   // Semantic HTML landmarks
   const semanticMappings: Record<string, string> = {
     'header': 'banner',
@@ -453,17 +446,18 @@ function extractLandmarks(document: Document): LandmarkInfo[] {
     'nav': 'navigation',
     'aside': 'complementary',
   };
-  
+
   Object.entries(semanticMappings).forEach(([tag, role]) => {
     const elements = document.querySelectorAll(tag);
     elements.forEach(element => {
       // Skip if already has role attribute
       if (element.hasAttribute('role')) return;
-      
+
       const idx = parseInt(element.getAttribute('data-agent-index') || '-1', 10);
+      const label = element.getAttribute('aria-label');
       landmarks.push({
         role,
-        label: element.getAttribute('aria-label') || undefined,
+        ...(label ? { label } : {}),
         elementIndex: idx,
       });
     });
@@ -646,6 +640,15 @@ export class DOMDistiller {
       if (!visible && !element.closest('form')) return;
       
       const index = this.assignIndex(element);
+      const bb = getBoundingBox(element);
+      const role = element.getAttribute('role');
+      const inputType = element instanceof HTMLInputElement ? element.type : null;
+      const value = this.getElementValue(element);
+      const placeholder = element.getAttribute('placeholder');
+      const label = this.getLabel(element);
+      const pattern = element.getAttribute('pattern');
+      const options = this.getSelectOptions(element);
+      const buttonText = this.getButtonText(element);
       const inputElement: InputFieldElement = {
         index,
         tag: element.tagName.toLowerCase(),
@@ -654,20 +657,20 @@ export class DOMDistiller {
         xpath: generateXPath(element),
         visible,
         interactable,
-        boundingBox: getBoundingBox(element),
-        role: element.getAttribute('role') || undefined,
+        ...(bb ? { boundingBox: bb } : {}),
+        ...(role ? { role } : {}),
         accessibleName: getAccessibleName(element),
-        inputType: element instanceof HTMLInputElement ? element.type : undefined,
-        value: this.getElementValue(element),
-        placeholder: element.getAttribute('placeholder') || undefined,
-        label: this.getLabel(element),
-        required: element.hasAttribute('required') || 
+        ...(inputType ? { inputType } : {}),
+        ...(value ? { value } : {}),
+        ...(placeholder ? { placeholder } : {}),
+        ...(label ? { label } : {}),
+        required: element.hasAttribute('required') ||
                   element.getAttribute('aria-required') === 'true',
         disabled: element.hasAttribute('disabled') ||
                   element.getAttribute('aria-disabled') === 'true',
-        pattern: element.getAttribute('pattern') || undefined,
-        options: this.getSelectOptions(element),
-        buttonText: this.getButtonText(element),
+        ...(pattern ? { pattern } : {}),
+        ...(options ? { options } : {}),
+        ...(buttonText ? { buttonText } : {}),
       };
       
       elements.push(inputElement);
@@ -751,6 +754,10 @@ export class DOMDistiller {
       const index = this.assignIndex(element);
       const tag = element.tagName.toLowerCase();
       
+      const bb = getBoundingBox(element);
+      const href = element.getAttribute('href');
+      const attributes = this.getRelevantAttributes(element);
+      const context = this.getContext(element);
       const interactiveElement: InteractiveElement = {
         index,
         tag,
@@ -759,13 +766,13 @@ export class DOMDistiller {
         xpath: generateXPath(element),
         visible,
         interactable,
-        boundingBox: getBoundingBox(element),
-        role: role || undefined,
+        ...(bb ? { boundingBox: bb } : {}),
+        ...(role ? { role } : {}),
         accessibleName: getAccessibleName(element),
         text: truncateText(normalizeWhitespace(element.textContent || ''), 100),
-        href: element.getAttribute('href') || undefined,
-        attributes: this.getRelevantAttributes(element),
-        context: this.getContext(element),
+        ...(href ? { href } : {}),
+        ...(attributes ? { attributes } : {}),
+        ...(context ? { context } : {}),
       };
       
       elements.push(interactiveElement);

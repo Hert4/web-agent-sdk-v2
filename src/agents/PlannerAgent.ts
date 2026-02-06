@@ -81,7 +81,7 @@ export class PlannerAgent {
   
   async planTask(userTask: string, pageState: PageState): Promise<TaskPlan> {
     const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    
+
     const messages: LLMMessage[] = [
       { role: 'system', content: this.config.customSystemPrompt },
       {
@@ -89,13 +89,28 @@ export class PlannerAgent {
         content: `Current page: ${pageState.url} - "${pageState.title}"\n\nTask: "${userTask}"\n\nReturn JSON only.`,
       },
     ];
-    
+
     const response = await this.llm.complete({ messages, responseFormat: 'json' });
     this.totalTokens += response.usage.totalTokens;
-    
-    const parsed = JSON.parse(response.content);
-    const subtasks = this.validateSubtasks(parsed.subtasks || parsed);
-    
+
+    let subtasks: SubTask[];
+    try {
+      const parsed = JSON.parse(response.content);
+      subtasks = this.validateSubtasks(parsed.subtasks || parsed);
+    } catch {
+      subtasks = [];
+    }
+
+    if (subtasks.length === 0) {
+      subtasks = [{
+        id: '1',
+        description: userTask,
+        action: 'navigate',
+        verification: 'Page loaded',
+        estimatedSteps: 1,
+      }];
+    }
+
     return {
       taskId,
       originalTask: userTask,
@@ -117,14 +132,21 @@ export class PlannerAgent {
         content: `Subtask: ${JSON.stringify(subtask)}\nResult: success=${result.success}, steps=${result.steps.length}\nPage: ${pageState.url}`,
       },
     ];
-    
+
     const response = await this.llm.complete({ messages, responseFormat: 'json' });
     this.totalTokens += response.usage.totalTokens;
-    
+
+    const fallback: VerificationResult = { completed: result.success, confidence: 0.5, reason: 'Parse failed' };
     try {
-      return JSON.parse(response.content);
+      const parsed = JSON.parse(response.content);
+      return {
+        completed: typeof parsed.completed === 'boolean' ? parsed.completed : fallback.completed,
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : fallback.confidence,
+        reason: typeof parsed.reason === 'string' ? parsed.reason : fallback.reason,
+        suggestion: typeof parsed.suggestion === 'string' ? parsed.suggestion : undefined,
+      };
     } catch {
-      return { completed: result.success, confidence: 0.5, reason: 'Parse failed' };
+      return fallback;
     }
   }
   
@@ -133,6 +155,7 @@ export class PlannerAgent {
     error: Error,
     pageState: PageState
   ): Promise<RecoveryPlan> {
+    const validStrategies = ['retry', 'alternative', 'skip', 'abort'] as const;
     const messages: LLMMessage[] = [
       { role: 'system', content: 'Suggest recovery for failed subtask. Return JSON: { "recoverable": bool, "strategy": "retry"|"alternative"|"skip"|"abort", "reason": "..." }' },
       {
@@ -140,29 +163,65 @@ export class PlannerAgent {
         content: `Failed: ${JSON.stringify(subtask)}\nError: ${error.message}\nPage: ${pageState.url}`,
       },
     ];
-    
+
     const response = await this.llm.complete({ messages, responseFormat: 'json' });
     this.totalTokens += response.usage.totalTokens;
-    
+
+    const fallback: RecoveryPlan = { recoverable: false, strategy: 'abort', reason: 'Parse failed' };
     try {
-      return JSON.parse(response.content);
+      const parsed = JSON.parse(response.content);
+      const strategy = validStrategies.includes(parsed.strategy) ? parsed.strategy : 'abort';
+      return {
+        recoverable: typeof parsed.recoverable === 'boolean' ? parsed.recoverable : strategy !== 'abort',
+        strategy,
+        alternativeSubtasks: Array.isArray(parsed.alternativeSubtasks) ? parsed.alternativeSubtasks : undefined,
+        retryModifications: parsed.retryModifications && typeof parsed.retryModifications === 'object' ? parsed.retryModifications : undefined,
+        reason: typeof parsed.reason === 'string' ? parsed.reason : 'Unknown',
+      };
     } catch {
-      return { recoverable: false, strategy: 'abort', reason: 'Parse failed' };
+      return fallback;
     }
   }
   
-  private validateSubtasks(subtasks: unknown[]): SubTask[] {
+  private validateSubtasks(subtasks: unknown): SubTask[] {
     if (!Array.isArray(subtasks)) return [];
-    
-    return subtasks.slice(0, this.config.maxSubtasks).map((s, i) => ({
-      id: String(s && typeof s === 'object' && 'id' in s ? s.id : i + 1),
-      description: String(s && typeof s === 'object' && 'description' in s ? s.description : ''),
-      action: String(s && typeof s === 'object' && 'action' in s ? s.action : 'click'),
-      target: s && typeof s === 'object' && 'target' in s ? String(s.target) : undefined,
-      value: s && typeof s === 'object' && 'value' in s ? String(s.value) : undefined,
-      verification: String(s && typeof s === 'object' && 'verification' in s ? s.verification : ''),
-      estimatedSteps: s && typeof s === 'object' && 'estimatedSteps' in s ? Number(s.estimatedSteps) : 1,
-    }));
+
+    const isObj = (s: unknown): s is Record<string, unknown> =>
+      s != null && typeof s === 'object';
+
+    return subtasks
+      .slice(0, this.config.maxSubtasks)
+      .filter((s): s is Record<string, unknown> =>
+        isObj(s) &&
+        typeof s['description'] === 'string' && (s['description'] as string).length > 0 &&
+        typeof s['action'] === 'string' && (s['action'] as string).length > 0
+      )
+      .map((s, i) => {
+        const id = typeof s['id'] === 'string' || typeof s['id'] === 'number' ? String(s['id']) : String(i + 1);
+        const rawDeps = s['dependencies'];
+        const deps = Array.isArray(rawDeps)
+          ? rawDeps.filter((d): d is string => typeof d === 'string')
+          : undefined;
+        const rawPriority = s['priority'];
+        const priority = typeof rawPriority === 'string' && ['high', 'medium', 'low'].includes(rawPriority)
+          ? (rawPriority as 'high' | 'medium' | 'low')
+          : undefined;
+        const rawSteps = s['estimatedSteps'];
+        const estimatedSteps = typeof rawSteps === 'number' && !Number.isNaN(rawSteps) ? rawSteps : 1;
+
+        const subtask: SubTask = {
+          id,
+          description: s['description'] as string,
+          action: s['action'] as string,
+          verification: typeof s['verification'] === 'string' ? s['verification'] as string : '',
+          estimatedSteps,
+          ...(typeof s['target'] === 'string' ? { target: s['target'] as string } : {}),
+          ...(typeof s['value'] === 'string' ? { value: s['value'] as string } : {}),
+          ...(deps && deps.length > 0 ? { dependencies: deps } : {}),
+          ...(priority ? { priority } : {}),
+        };
+        return subtask;
+      });
   }
   
   getTokensUsed(): number {

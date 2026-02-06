@@ -4,7 +4,6 @@
 
 import type {
   Skill,
-  JSONSchema,
   OpenAIFunction,
   AnthropicTool,
   ActionResult,

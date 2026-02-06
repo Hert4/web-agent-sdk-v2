@@ -40,11 +40,17 @@ describe('PlannerAgent', () => {
     it('should handle malformed LLM response gracefully', async () => {
       const llm = createMockLLM('not valid json');
       const planner = new PlannerAgent(llm as any);
-      
-      await expect(planner.planTask('Test task', {
+
+      const plan = await planner.planTask('Test task', {
         url: 'https://example.com',
         title: 'Test',
-      })).rejects.toThrow();
+      });
+
+      // Should fall back to a single navigate subtask
+      expect(plan.subtasks).toHaveLength(1);
+      expect(plan.subtasks[0]?.action).toBe('navigate');
+      expect(plan.subtasks[0]?.description).toBe('Test task');
+      expect(plan.originalTask).toBe('Test task');
     });
 
     it('should limit subtasks to max configured', async () => {

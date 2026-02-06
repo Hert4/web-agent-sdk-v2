@@ -60,11 +60,8 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
 export class TokenTracker {
   private records: TokenUsageRecord[] = [];
   private maxRecords: number;
-  private defaultModel: string;
-
   constructor(options: { maxRecords?: number; defaultModel?: string } = {}) {
     this.maxRecords = options.maxRecords ?? 1000;
-    this.defaultModel = options.defaultModel ?? 'default';
   }
 
   /**
@@ -131,9 +128,10 @@ export class TokenTracker {
       if (!metrics.byModel[record.model]) {
         metrics.byModel[record.model] = { tokens: 0, cost: 0, requests: 0 };
       }
-      metrics.byModel[record.model].tokens += record.totalTokens;
-      metrics.byModel[record.model].cost += record.cost;
-      metrics.byModel[record.model].requests += 1;
+      const modelMetrics = metrics.byModel[record.model]!;
+      modelMetrics.tokens += record.totalTokens;
+      modelMetrics.cost += record.cost;
+      modelMetrics.requests += 1;
     }
 
     if (this.records.length > 0) {
@@ -182,15 +180,11 @@ export class TokenTracker {
     const percentUsed = budget > 0 ? (spent / budget) * 100 : 0;
 
     // Project total based on average cost per request
-    const averageCostPerRequest = metrics.requestCount > 0 
-      ? spent / metrics.requestCount 
-      : 0;
-    
     return {
       spent,
       remaining,
       percentUsed,
-      projectedTotal: spent, // Could be enhanced with trend analysis
+      projectedTotal: spent,
     };
   }
 

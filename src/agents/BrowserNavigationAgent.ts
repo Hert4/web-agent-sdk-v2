@@ -245,7 +245,7 @@ Title: ${dom.title}
 
     // Add elements (limited to prevent context overflow)
     const maxElements = 50;
-    elements.slice(0, maxElements).forEach((el, i) => {
+    elements.slice(0, maxElements).forEach((el) => {
       if ('text' in el || 'content' in el) {
         const text = 'text' in el ? el.text : 'content' in el ? el.content : '';
         prompt += `[${el.index}] ${el.tag}: ${text?.slice(0, 80)}\n`;
@@ -315,7 +315,7 @@ Title: ${dom.title}
       subtaskId,
       success,
       steps,
-      error,
+      ...(error !== undefined && { error }),
       startTime,
       endTime: Date.now(),
       tokensUsed: this.totalTokens,

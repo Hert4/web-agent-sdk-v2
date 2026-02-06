@@ -15,6 +15,39 @@
 - 🌐 **Framework Agnostic** - Works with Playwright, Puppeteer, or browser APIs
 
 ## Installation
+## Testing
+
+### Unit tests
+
+```bash
+npm test
+```
+
+### OpenAI-compatible gateway integration tests
+
+This repo includes an integration test suite that validates the SDK’s OpenAI chat.completions API calls
+against an **OpenAI-compatible** provider (baseURL + apiKey), including:
+
+- basic chat completion
+- function/tool calling
+- JSON response format
+
+Set env vars and run:
+
+```bash
+export WEB_AGENT_OPENAI_BASE_URL="http://test-k8s.misa.local/llm-gateway/v1"
+export WEB_AGENT_OPENAI_API_KEY="<your key>"
+export WEB_AGENT_OPENAI_MODEL="gpt-5.2"   # optional (default: gpt-5.2)
+
+npx vitest run tests/LLMProvider.openai.compat.test.ts
+```
+
+Or use the convenience runner:
+
+```bash
+npm run test:run
+```
+
 
 ```bash
 npm install web-agent-sdk
